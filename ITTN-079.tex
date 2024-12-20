@@ -2,8 +2,43 @@
 \input{meta}
 
 % Package imports go here.
-
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{booktabs}
 % Local commands go here.
+% YAML language definition for listings
+\lstdefinelanguage{yaml}{
+  keywords={true,false,null,y,n},
+  keywordstyle=\color{blue}\bfseries,
+  basicstyle=\ttfamily\small,
+  sensitive=false,
+  comment=[l]{\#},
+  commentstyle=\color{green!60!black}\itshape,
+  stringstyle=\color{red},
+  morestring=[b]',
+  morestring=[b]",
+  moredelim=[l][\color{orange}]:-,
+  moredelim=[l][\color{magenta}]:-,
+  morekeywords={apiVersion,kind,metadata,name,spec,type,securityContext,
+    runAsNonRoot,runAsUser,fsGroup,seccompProfile,containers,allowPrivilegeEscalation,
+    capabilities,readOnlyRootFilesystem,privileged,podSelector,policyTypes,ingress,egress}
+}
+
+% Configure code listings
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny,
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!60!black},
+    stringstyle=\color{red},
+    showstringspaces=false,
+    backgroundcolor=\color{gray!10},
+    captionpos=b
+}
 
 %If you want glossaries
 %\input{aglossary.tex}
@@ -16,7 +51,7 @@
 \hypersetup{
     pdftitle={Hardening Kubernetes Workload},
     pdfauthor={Gonzalo Seriche},
-    pdfkeywords={}
+    pdfkeywords={kubernetes, security, CIS benchmark, container security, workload hardening}
 }
 
 % Optional subtitle
@@ -35,7 +70,7 @@ Gonzalo Seriche
 % \setDocCurator{The Curator of this Document}
 
 \setDocAbstract{%
-Security compliance workload.
+This technical note provides comprehensive guidance for implementing security controls and hardening measures for Kubernetes workloads based on CIS Benchmark recommendations. It covers pod security policies, network security, container image security, and compliance monitoring for on-premise Kubernetes deployments.
 }
 
 % Change history defined here.
@@ -43,7 +78,8 @@ Security compliance workload.
 % Fields: VERSION, DATE, DESCRIPTION, OWNER NAME.
 % See LPM-51 for version number policy.
 \setDocChangeRecord{%
-  \addtohist{1}{YYYY-MM-DD}{Unreleased.}{Gonzalo Seriche}
+  \addtohist{1}{2024-09-13}{Initial release.}{Gonzalo Seriche}
+  \addtohist{1}{2024-12-19}{Add primary best practices and security guidelines}{Gonzalo Seriche}
 }
 
 
@@ -56,6 +92,513 @@ Security compliance workload.
 
 % ADD CONTENT HERE
 % You can also use the \input command to include several content files.
+
+\section{Introduction}
+
+This document outlines the security measures, implementation guidelines, and best practices for hardening Kubernetes workloads in accordance with the Center for Internet Security (CIS) Benchmark. The guidance provided here is specifically tailored for on-premise Kubernetes deployments and focuses on establishing a robust security posture while maintaining operational efficiency.
+
+\section{Pod Security Standards}
+
+\subsection{Pod Security Context Implementation}
+
+Pod security context defines the privilege and access control settings that are essential for maintaining a secure Kubernetes environment. The following configurations establish the foundation for pod-level security:
+
+\begin{lstlisting}[language=yaml]
+apiVersion: v1
+kind: Pod
+metadata:
+  name: secure-pod
+spec:
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 3000
+    seccompProfile:
+      type: RuntimeDefault
+\end{lstlisting}
+
+The security context implementation enforces several critical security controls:
+
+\begin{itemize}
+    \item Non-root execution prevents privilege escalation scenarios
+    \item Specific UID assignments ensure precise access control
+    \item Filesystem group configurations maintain proper data access boundaries
+    \item SecComp profiles limit available system calls to reduce the attack surface
+\end{itemize}
+
+\subsection{Container Level Security Controls}
+
+Container security context configurations provide granular control over container execution parameters:
+
+\begin{lstlisting}[language=yaml]
+spec:
+  containers:
+  - name: secured-container
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
+      readOnlyRootFilesystem: true
+      privileged: false
+\end{lstlisting}
+
+These settings establish a defensive posture through:
+
+\begin{itemize}
+    \item Prevention of privilege escalation attempts
+    \item Removal of unnecessary Linux capabilities
+    \item Implementation of read-only root filesystems
+    \item Explicit prohibition of privileged execution modes
+\end{itemize}
+
+\section{Network Security Framework}
+
+\subsection{Default Network Policies}
+
+Implementation of a default deny policy establishes a zero-trust networking baseline:
+
+\begin{lstlisting}[language=yaml]
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+\end{lstlisting}
+
+\subsection{Granular Access Controls}
+
+Specific allow rules should be implemented for required communications:
+
+\begin{lstlisting}[language=yaml]
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-specific
+spec:
+  podSelector:
+    matchLabels:
+      app: web
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          role: frontend
+    ports:
+    - protocol: TCP
+      port: 80
+\end{lstlisting}
+
+\section{Resource Management and Quotas}
+
+\subsection{Resource Quota Implementation}
+
+Resource quotas prevent resource exhaustion and ensure fair resource allocation:
+
+\begin{lstlisting}[language=yaml]
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: compute-resources
+spec:
+  hard:
+    requests.cpu: "4"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 16Gi
+\end{lstlisting}
+
+\subsection{Default Resource Constraints}
+
+Limit ranges establish default resource boundaries:
+
+\begin{lstlisting}[language=yaml]
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: resource-constraints
+spec:
+  limits:
+  - default:
+      cpu: 500m
+      memory: 512Mi
+    defaultRequest:
+      cpu: 200m
+      memory: 256Mi
+    type: Container
+\end{lstlisting}
+
+\section{Monitoring and Compliance Framework}
+
+\subsection{Audit Logging Configuration}
+
+Comprehensive audit logging enables security monitoring and compliance verification:
+
+\begin{lstlisting}[language=yaml]
+apiVersion: audit.k8s.io/v1
+kind: Policy
+rules:
+- level: Metadata
+  resources:
+  - group: ""
+    resources: ["pods", "services"]
+- level: RequestResponse
+  resources:
+  - group: "apps"
+    resources: ["deployments"]
+\end{lstlisting}
+
+\subsection{Compliance Monitoring Implementation}
+
+The compliance monitoring framework should encompass:
+
+\begin{itemize}
+    \item Automated security scanning tools integration
+    \item Continuous compliance status monitoring
+    \item Policy enforcement automation
+    \item Regular CIS Benchmark assessment procedures
+\end{itemize}
+
+\section{Security Best Practices}
+
+\subsection{Image Security Controls}
+
+Image security measures should include:
+
+\begin{itemize}
+    \item Mandatory image signing and verification
+    \item Regular vulnerability scanning
+    \item Base image update procedures
+    \item Registry access control implementation
+\end{itemize}
+
+\subsection{Secret Management}
+
+Implement robust secret management practices:
+
+\begin{lstlisting}[language=yaml]
+apiVersion: v1
+kind: Secret
+metadata:
+  name: application-secrets
+  annotations:
+    vault.security.banzaicloud.io/vault-role: "app-role"
+type: Opaque
+data:
+  APP_SECRET: <base64-encoded-secret>
+\end{lstlisting}
+
+\section{Implementation Guidelines}
+
+\subsection{Deployment Process}
+
+The security control implementation process should follow these phases:
+
+\begin{enumerate}
+    \item Security posture assessment
+    \item Gap analysis against CIS Benchmark
+    \item Control implementation prioritization
+    \item Gradual security measure deployment
+    \item Validation and testing
+    \item Continuous monitoring establishment
+\end{enumerate}
+
+\subsection{Maintenance Procedures}
+
+Establish regular maintenance procedures for:
+
+\begin{itemize}
+    \item Security patch management
+    \item Configuration updates
+    \item Policy refinement
+    \item Compliance verification
+\end{itemize}
+
+\section{CIS Benchmark Compliance Testing}
+
+\subsection{Kube-bench Implementation}
+
+Kube-bench provides automated testing for Kubernetes CIS Benchmark compliance. The implementation varies based on Kubernetes versions and deployment methods.
+
+\subsubsection{Version Compatibility}
+
+Kube-bench supports multiple Kubernetes releases with specific test definitions:
+
+\begin{lstlisting}[language=yaml]
+# Job specification for Kubernetes 1.24+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kube-bench
+spec:
+  template:
+    spec:
+      hostPID: true
+      containers:
+        - name: kube-bench
+          image: aquasec/kube-bench:v0.6.15
+          command: ["kube-bench", "run", "--targets", "master,node"]
+          volumeMounts:
+            - name: var-lib-kubelet
+              mountPath: /var/lib/kubelet
+            - name: etc-systemd
+              mountPath: /etc/systemd
+            - name: etc-kubernetes
+              mountPath: /etc/kubernetes
+      restartPolicy: Never
+      volumes:
+        - name: var-lib-kubelet
+          hostPath:
+            path: "/var/lib/kubelet"
+        - name: etc-systemd
+          hostPath:
+            path: "/etc/systemd"
+        - name: etc-kubernetes
+          hostPath:
+            path: "/etc/kubernetes"
+\end{lstlisting}
+
+\subsubsection{Automated Scheduling}
+
+Implement regular compliance testing through CronJobs:
+
+\begin{lstlisting}[language=yaml]
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kube-bench-schedule
+spec:
+  schedule: "0 1 * * *"  # Run daily at 1 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          hostPID: true
+          containers:
+            - name: kube-bench
+              image: aquasec/kube-bench:v0.6.15
+              command: 
+                - "kube-bench"
+                - "run"
+                - "--targets"
+                - "master,node"
+                - "--outputfile"
+                - "/reports/compliance.json"
+              volumeMounts:
+                - name: var-lib-kubelet
+                  mountPath: /var/lib/kubelet
+                - name: reports
+                  mountPath: /reports
+          volumes:
+            - name: var-lib-kubelet
+              hostPath:
+                path: "/var/lib/kubelet"
+            - name: reports
+              persistentVolumeClaim:
+                claimName: compliance-reports-pvc
+          restartPolicy: Never
+\end{lstlisting}
+
+\subsection{Version-Specific Configurations}
+
+Different Kubernetes versions require specific considerations:
+
+For Kubernetes 1.24 and newer:
+\begin{itemize}
+    \item Use kube-bench version 0.6.x
+    \item Enable container runtime socket mounting
+    \item Configure specific test suites for newer security features
+\end{itemize}
+
+For Kubernetes 1.23 and older:
+\begin{itemize}
+    \item Use compatible kube-bench versions (0.5.x)
+    \item Adjust for legacy API versions
+    \item Include deprecated security controls testing
+\end{itemize}
+
+\subsection{Results Processing}
+
+Implement automated results processing:
+
+\begin{lstlisting}[language=yaml]
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: compliance-processor
+data:
+  process.sh: |
+    #!/bin/bash
+    REPORT_PATH="/reports/compliance.json"
+    if [ -f "$REPORT_PATH" ]; then
+      # Process results
+      jq -r '.Controls[] | select(.status=="FAIL")' "$REPORT_PATH" > failures.json
+      # Alert if necessary
+      if [ -s failures.json ]; then
+        # Send alerts
+        curl -X POST ${ALERT_ENDPOINT} -d @failures.json
+      fi
+    fi
+\end{lstlisting}
+
+\section{Compliance Monitoring and Alerting Framework}
+
+\subsection{Advanced Results Processing}
+
+The compliance results processing system implements a comprehensive pipeline for analyzing kube-bench outputs and generating actionable insights. The system processes both JSON and YAML outputs, correlates findings across multiple clusters, and maintains a historical compliance database.
+
+\begin{lstlisting}[language=yaml]
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: compliance-processor-config
+data:
+  config.yaml: |
+    processing:
+      output_format: json
+      retention_days: 90
+      minimum_severity: MEDIUM
+      excluded_checks:
+        - 1.2.1  # Document exclusion rationale
+        - 2.1.3  # Alternative control implemented
+    alerting:
+      threshold_critical: 85
+      threshold_warning: 95
+      notification_channels:
+        - slack
+        - email
+        - pagerduty
+    reporting:
+      format: html
+      schedule: "0 8 * * 1"  # Weekly reports
+      recipients: ["security-team@org.com"]
+\end{lstlisting}
+
+\subsection{Monitoring Integration}
+
+The monitoring framework integrates with existing observability platforms through a comprehensive metrics pipeline:
+
+\begin{lstlisting}[language=yaml]
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: compliance-metrics
+spec:
+  selector:
+    matchLabels:
+      app: kube-bench
+  endpoints:
+  - port: metrics
+    interval: 30s
+    path: /metrics
+  - port: compliance
+    interval: 5m
+    path: /compliance
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: compliance-alerts
+spec:
+  groups:
+  - name: compliance.rules
+    rules:
+    - alert: ComplianceScoreDegraded
+      expr: compliance_score < 85
+      for: 1h
+      labels:
+        severity: critical
+      annotations:
+        summary: Cluster compliance score below threshold
+        description: Cluster {{ $labels.cluster }} compliance score is {{ $value }}
+    - alert: HighSeverityFinding
+      expr: compliance_findings{severity="HIGH"} > 0
+      for: 5m
+      labels:
+        severity: critical
+\end{lstlisting}
+
+\subsection{Advanced Alerting Configuration}
+
+The alerting system implements a sophisticated notification framework with different severity levels and escalation paths:
+
+\begin{lstlisting}[language=yaml]
+apiVersion: notification.toolkit.fluxcd.io/v1beta1
+kind: Alert
+metadata:
+  name: compliance-alerts
+spec:
+  eventSeverity: info
+  eventSources:
+    - kind: Kustomization
+      name: '*'
+  providerRef:
+    name: slack
+---
+apiVersion: notification.toolkit.fluxcd.io/v1beta1
+kind: Provider
+metadata:
+  name: slack
+spec:
+  type: slack
+  channel: security-alerts
+  address: https://hooks.slack.com/services/YOUR-WEBHOOK-URL
+  secretRef:
+    name: slack-url
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alert-templates
+data:
+  critical.tmpl: |
+    *Critical Compliance Alert*
+    Cluster: {{ .Cluster }}
+    Check: {{ .CheckID }}
+    Description: {{ .Description }}
+    Remediation: {{ .Remediation }}
+  warning.tmpl: |
+    Warning: Compliance Issue Detected
+    Cluster: {{ .Cluster }}
+    Details: {{ .Details }}
+\end{lstlisting}
+
+\subsection{Compliance Reporting and Analytics}
+
+The reporting system generates comprehensive compliance analytics and trend analysis:
+
+\begin{lstlisting}[language=yaml]
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: compliance-report-generator
+spec:
+  schedule: "0 1 * * 1"  # Weekly on Monday at 1 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+          - name: report-generator
+            image: compliance-reporter:v1
+            env:
+            - name: REPORT_PERIOD
+              value: "7d"
+            - name: INCLUDE_TRENDS
+              value: "true"
+            - name: REPORT_FORMAT
+              value: "html,pdf"
+            volumeMounts:
+            - name: report-output
+              mountPath: /reports
+          volumes:
+          - name: report-output
+            persistentVolumeClaim:
+              claimName: report-storage
+\end{lstlisting}
 
 \appendix
 % Include all the relevant bib files.
